@@ -26,8 +26,12 @@ namespace RtpStreamCapture
     private static MuLawChatCodec codec = new MuLawChatCodec();
     private static BufferedWaveProvider incomingWaveProvider = new BufferedWaveProvider(codec.RecordFormat);
     private static BufferedWaveProvider outgoingWaveProvider = new BufferedWaveProvider(codec.RecordFormat);
-    private static WaveFileWriter recordIncoming = new WaveFileWriter("testIncoming.wav", codec.RecordFormat);
-    private static WaveFileWriter recordOutgoing = new WaveFileWriter("testOutgoing.wav", codec.RecordFormat);
+    private static MixingSampleProvider streamProvider = new MixingSampleProvider(new[] 
+    {
+      incomingWaveProvider.ToSampleProvider(),
+      outgoingWaveProvider.ToSampleProvider(),
+    });
+    private static WaveFileWriter record = new WaveFileWriter("test.wav", codec.RecordFormat);
     
     static void Main(string[] args)
     {
@@ -42,8 +46,11 @@ namespace RtpStreamCapture
       Console.WriteLine("Press Enter to stop...");
       Console.ReadLine();
       
-      recordIncoming.Dispose();
-      recordOutgoing.Dispose();
+      // grab any straggler bytes
+      byte[] buffer = new byte[new[] { incomingWaveProvider.BufferedBytes, outgoingWaveProvider.BufferedBytes }.Max()];
+      streamProvider.ToWaveProvider16().Read(buffer, 0, buffer.Length);
+      record.Write(buffer, 0, buffer.Length);
+      record.Dispose();
     }
     
     private static void OnPacketArrival(object sender, CaptureEventArgs e)
@@ -55,12 +62,21 @@ namespace RtpStreamCapture
       byte[] decodedAudio = codec.Decode(rtp.Data, 0, rtp.Data.Length);
       if (udpPacket.DestinationPort == port)
       {
-        recordIncoming.Write(decodedAudio, 0, decodedAudio.Length);
+        incomingWaveProvider.AddSamples(decodedAudio, 0, decodedAudio.Length);
       }
       else
       {
-        recordOutgoing.Write(decodedAudio, 0, decodedAudio.Length);
-      } 
+        outgoingWaveProvider.AddSamples(decodedAudio, 0, decodedAudio.Length);
+      }
+      
+      // blend the two streams together
+      byte[] buffer = null;
+      if (incomingWaveProvider.BufferedBytes > 0 && outgoingWaveProvider.BufferedBytes > 0)
+      {
+        buffer = new byte[new[] { incomingWaveProvider.BufferedBytes, outgoingWaveProvider.BufferedBytes}.Min()];
+        streamProvider.ToWaveProvider16().Read(buffer, 0, buffer.Length);
+        record.Write(buffer, 0, buffer.Length);
+      }
     }
   }
 }
