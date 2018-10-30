@@ -5,6 +5,7 @@ using SharpPcap;
 using System;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
@@ -14,6 +15,22 @@ namespace RtpStreamCapture
 {
   class Program
   {
+    private static IPAddress ipAddr
+    {
+      get
+      {
+        var host = Dns.GetHostEntry(Dns.GetHostName());
+        foreach (var ip in host.AddressList)
+        {
+          if (ip.AddressFamily == AddressFamily.InterNetwork)
+          {
+            return ip.ToString();
+          }
+        }
+        throw new Exception("No network adapters with an IPv4 address in the system!");
+      }
+    }
+    
     private static int port = 10000;
   
     /// <summary>
@@ -39,7 +56,7 @@ namespace RtpStreamCapture
       {
         d.OnPacketArrival += OnPacketArrival;
         d.Open();
-        d.Filter = string.Format("port {0}", port);
+        d.Filter = string.Format("port {0}", port);  // captures all incoming and outgoing on this port 
         d.StartCapture();
       }
       
@@ -56,11 +73,12 @@ namespace RtpStreamCapture
     private static void OnPacketArrival(object sender, CaptureEventArgs e)
     {
       var packet = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+      var ipPacket = (IpPacket)packet.Extract(typeof(IpPacket));
       var udpPacket = (UdpPacket)packet.Extract(typeof(UdpPacket));
       var payload = udpPacket.PayloadData;
       var rtp = RtpPacket.Parse(payload, payload.Length);
       byte[] decodedAudio = codec.Decode(rtp.Data, 0, rtp.Data.Length);
-      if (udpPacket.DestinationPort == port)
+      if (ipPacket.DestinationAddress.Equals(ipAddr) && udpPacket.DestinationPort == port)
       {
         incomingWaveProvider.AddSamples(decodedAudio, 0, decodedAudio.Length);
       }
