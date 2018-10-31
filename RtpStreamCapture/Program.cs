@@ -78,6 +78,7 @@ namespace RtpStreamCapture
       var payload = udpPacket.PayloadData;
       var rtp = RtpPacket.Parse(payload, payload.Length);
       byte[] decodedAudio = codec.Decode(rtp.Data, 0, rtp.Data.Length);
+      // peer-to-peer will both be on the same port, so need to check ipAddress as well
       if (ipPacket.DestinationAddress.Equals(ipAddr) && udpPacket.DestinationPort == port)
       {
         incomingWaveProvider.AddSamples(decodedAudio, 0, decodedAudio.Length);
